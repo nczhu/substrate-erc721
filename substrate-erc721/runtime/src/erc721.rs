@@ -1,5 +1,5 @@
 use parity_codec::Encode;
-use srml_support::{StorageMap, dispatch::Result};
+use srml_support::{StorageValue, StorageMap, dispatch::Result};
 use system::ensure_signed;
 use runtime_primitives::traits::{Hash, Zero};
 use rstd::prelude::*;
@@ -22,73 +22,83 @@ decl_event!(
 
 decl_storage! {
     trait Store for Module<T: Trait> as ERC721Storage {
+        // Start ERC721 : Storage & Getters //
         OwnedTokensCount get(balance_of): map T::AccountId => u32;
         TokenOwner get(owner_of): map T::Hash => Option<T::AccountId>;
         TokenApprovals get(get_approved): map T::Hash => Option<T::AccountId>;
         OperatorApprovals get(is_approved_for_all): map (T::AccountId, T::AccountId) => bool;
+        // End ERC721 : Storage & Getters //
+
+        // Start ERC721 : Enumerable : Storage & Getters //
+        TotalSupply get(total_supply): u32;
+        AllTokens get(token_by_index): map u32 => T::Hash;
+        AllTokensIndex: map T::Hash => u32;
+        OwnedTokens get(token_of_owner_by_index): map (T::AccountId, u32) => T::Hash;
+        OwnedTokensIndex: map T::Hash => u32;
+        // Start ERC721 : Enumerable : Storage & Getters //
     }
 }
 
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 
-    fn deposit_event<T>() = default;
+        fn deposit_event<T>() = default;
 
-    fn approve(origin, to: T::AccountId, token_id: T::Hash) -> Result {
-        let sender = ensure_signed(origin)?;
-        let owner = match Self::owner_of(token_id) {
-            Some(c) => c,
-            None => return Err("No owner for this token"),
-        };
+        fn approve(origin, to: T::AccountId, token_id: T::Hash) -> Result {
+            let sender = ensure_signed(origin)?;
+            let owner = match Self::owner_of(token_id) {
+                Some(c) => c,
+                None => return Err("No owner for this token"),
+            };
 
-        ensure!(to != owner, "Owner is implicitly approved");
-        ensure!(sender == owner || Self::is_approved_for_all((owner.clone(), sender.clone())), "You are not allowed to approve for this token");
+            ensure!(to != owner, "Owner is implicitly approved");
+            ensure!(sender == owner || Self::is_approved_for_all((owner.clone(), sender.clone())), "You are not allowed to approve for this token");
 
-        <TokenApprovals<T>>::insert(&token_id, &to);
+            <TokenApprovals<T>>::insert(&token_id, &to);
 
-        Self::deposit_event(RawEvent::Approval(owner, to, token_id));
+            Self::deposit_event(RawEvent::Approval(owner, to, token_id));
 
-        Ok(())
+            Ok(())
+        }
+
+        fn set_approval_for_all(origin, to: T::AccountId, approved: bool) -> Result {
+            let sender = ensure_signed(origin)?;
+            ensure!(to != sender, "You are already implicity approved for your own actions");
+            <OperatorApprovals<T>>::insert((sender.clone(), to.clone()), approved);
+
+            Self::deposit_event(RawEvent::ApprovalForAll(sender, to, approved));
+
+            Ok(())
+        }
+
+        fn transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
+            let sender = ensure_signed(origin)?;
+            ensure!(Self::_is_approved_or_owner(sender, token_id), "You do not own this token");
+
+            Self::_transfer_from(from, to, token_id)?;
+
+            Ok(())
+        }
+
+        fn safe_transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
+            let to_balance = <balances::Module<T>>::free_balance(&to);
+            ensure!(!to_balance.is_zero(), "'to' account does not satisfy the `ExistentialDeposit` requirement");
+
+            Self::transfer_from(origin, from, to, token_id)?;
+
+            Ok(())
+        }
+
+        // Not part of ERC721, but allows you to play with the runtime
+        fn create_token(origin) -> Result{
+            let sender = ensure_signed(origin)?;
+            let random_hash = (<system::Module<T>>::random_seed(), &sender).using_encoded(<T as system::Trait>::Hashing::hash);
+            
+            Self::_mint(sender, random_hash)?;
+
+            Ok(())
+        }
     }
-
-    fn set_approval_for_all(origin, to: T::AccountId, approved: bool) -> Result {
-        let sender = ensure_signed(origin)?;
-        ensure!(to != sender, "You are already implicity approved for your own actions");
-        <OperatorApprovals<T>>::insert((sender.clone(), to.clone()), approved);
-
-        Self::deposit_event(RawEvent::ApprovalForAll(sender, to, approved));
-
-        Ok(())
-    }
-
-    fn transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
-        let sender = ensure_signed(origin)?;
-        ensure!(Self::_is_approved_or_owner(sender, token_id), "You do not own this token");
-
-        Self::_transfer_from(from, to, token_id)?;
-
-        Ok(())
-    }
-
-    fn safe_transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
-        let to_balance = <balances::Module<T>>::free_balance(&to);
-        ensure!(!to_balance.is_zero(), "'to' account does not satisfy the `ExistentialDeposit` requirement");
-
-        Self::transfer_from(origin, from, to, token_id)?;
-
-        Ok(())
-    }
-
-    // Not part of ERC721, but allows you to play with the runtime
-    fn create_token(origin) -> Result{
-        let sender = ensure_signed(origin)?;
-        let random_hash = (<system::Module<T>>::random_seed(), &sender).using_encoded(<T as system::Trait>::Hashing::hash);
-        
-        Self::_mint(sender, random_hash)?;
-
-        Ok(())
-    }
-  }
 }
 
 impl<T: Trait> Module<T> {
@@ -100,8 +110,8 @@ impl<T: Trait> Module<T> {
         let owner = Self::owner_of(token_id);
         let approved_user = Self::get_approved(token_id);
 
-        let approved_as_owner = match owner.clone() {
-            Some(o) => o == spender,
+        let approved_as_owner = match owner {
+            Some(ref o) => o == &spender,
             None => false,
         };
 
@@ -128,6 +138,9 @@ impl<T: Trait> Module<T> {
             None => return Err("Overflow adding a new token to account balance"),
         };
 
+        Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
+        Self::_add_token_to_all_tokens_enumeration(token_id)?;
+
         <TokenOwner<T>>::insert(token_id, &to);
         <OwnedTokensCount<T>>::insert(&to, new_balance_of);
 
@@ -148,6 +161,10 @@ impl<T: Trait> Module<T> {
             Some(c) => c,
             None => return Err("Underflow subtracting a token to account balance"),
         };
+
+        Self::_remove_token_from_all_tokens_enumeration(token_id)?;
+        Self::_remove_token_from_owner_enumeration(owner.clone(), token_id)?;
+        <OwnedTokensIndex<T>>::remove(token_id);
 
         Self::_clear_approval(token_id)?;
 
@@ -179,6 +196,9 @@ impl<T: Trait> Module<T> {
             Some(c) => c,
             None => return Err("Transfer causes overflow of 'to' token balance"),
         };
+
+        Self::_remove_token_from_owner_enumeration(from.clone(), token_id)?;
+        Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
         
         Self::_clear_approval(token_id)?;
         <OwnedTokensCount<T>>::insert(&from, new_balance_of_from);
@@ -192,6 +212,81 @@ impl<T: Trait> Module<T> {
 
     fn _clear_approval(token_id: T::Hash) -> Result{
         <TokenApprovals<T>>::remove(token_id);
+
+        Ok(())
+    }
+
+    fn _add_token_to_owner_enumeration(to: T::AccountId, token_id: T::Hash) -> Result {
+        let new_token_index = Self::balance_of(&to);
+
+        <OwnedTokensIndex<T>>::insert(token_id, new_token_index);
+        <OwnedTokens<T>>::insert((to, new_token_index), token_id);
+
+        Ok(())
+    }
+
+    fn _add_token_to_all_tokens_enumeration(token_id: T::Hash) -> Result {
+        let total_supply = Self::total_supply();
+
+        let new_total_supply = match total_supply.checked_add(1) {
+            Some (c) => c,
+            None => return Err("Overflow when adding new token to total supply"),
+        };
+
+        let new_token_index = total_supply;
+
+        <AllTokensIndex<T>>::insert(token_id, new_token_index);
+        <AllTokens<T>>::insert(new_token_index, token_id);
+        <TotalSupply<T>>::put(new_total_supply);
+
+        Ok(())
+    }
+
+    fn _remove_token_from_owner_enumeration(from: T::AccountId, token_id: T::Hash) -> Result {
+        let balance_of_from = Self::balance_of(&from);
+
+        // Should never fail since this check happens in the parent function
+        let last_token_index = match balance_of_from.checked_sub(1) {
+            Some (c) => c,
+            None => return Err("Transfer causes underflow of 'from' token balance"),
+        };
+        
+        let token_index = <OwnedTokensIndex<T>>::get(token_id);
+
+        if token_index != last_token_index {
+            let last_token_id = <OwnedTokens<T>>::get((from.clone(), last_token_index));
+            <OwnedTokens<T>>::insert((from.clone(), token_index), last_token_id);
+            <OwnedTokensIndex<T>>::insert(last_token_id, token_index);
+        }
+
+        <OwnedTokens<T>>::remove((from, last_token_index));
+        // OpenZeppelin does not do this... should I?
+        <OwnedTokensIndex<T>>::remove(token_id);
+
+        Ok(())
+    }
+
+    fn _remove_token_from_all_tokens_enumeration(token_id: T::Hash) -> Result {
+        let total_supply = Self::total_supply();
+
+        let new_total_supply = match total_supply.checked_sub(1) {
+            Some(c) => c,
+            None => return Err("Underflow removing token from total supply"),
+        };
+
+        let last_token_index = new_total_supply;
+
+        let token_index = <AllTokensIndex<T>>::get(token_id);
+
+        let last_token_id = <AllTokens<T>>::get(last_token_index);
+
+        <AllTokens<T>>::insert(token_index, last_token_id);
+        <AllTokensIndex<T>>::insert(last_token_id, token_index);
+
+        <AllTokens<T>>::remove(last_token_index);
+        <AllTokensIndex<T>>::remove(token_id);
+
+        <TotalSupply<T>>::put(new_total_supply);
 
         Ok(())
     }
