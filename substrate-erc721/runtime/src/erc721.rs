@@ -1,3 +1,6 @@
+// Port of the OpenZeppelin ERC721 and ERC721Enumerable contracts to Parity Substrate
+// https://github.com/OpenZeppelin/openzeppelin-solidity/tree/master/contracts/token/ERC721
+
 use parity_codec::Encode;
 use srml_support::{StorageValue, StorageMap, dispatch::Result};
 use system::ensure_signed;
@@ -44,6 +47,7 @@ decl_module! {
 
         fn deposit_event<T>() = default;
 
+        // Start ERC721 : Public Functions //
         fn approve(origin, to: T::AccountId, token_id: T::Hash) -> Result {
             let sender = ensure_signed(origin)?;
             let owner = match Self::owner_of(token_id) {
@@ -71,6 +75,7 @@ decl_module! {
             Ok(())
         }
 
+        // transfer_from will transfer to addresses even without a balance
         fn transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
             let sender = ensure_signed(origin)?;
             ensure!(Self::_is_approved_or_owner(sender, token_id), "You do not own this token");
@@ -80,6 +85,8 @@ decl_module! {
             Ok(())
         }
 
+        // safe_transfer_from checks that the recieving address has enough balance to satisfy the ExistentialDeposit
+        // This is not quite what it does on Ethereum, but in the same spirit...
         fn safe_transfer_from(origin, from: T::AccountId, to: T::AccountId, token_id: T::Hash) -> Result {
             let to_balance = <balances::Module<T>>::free_balance(&to);
             ensure!(!to_balance.is_zero(), "'to' account does not satisfy the `ExistentialDeposit` requirement");
@@ -88,9 +95,10 @@ decl_module! {
 
             Ok(())
         }
+        // End ERC721 : Public Functions //
 
         // Not part of ERC721, but allows you to play with the runtime
-        fn create_token(origin) -> Result{
+        fn create_token(origin) -> Result {
             let sender = ensure_signed(origin)?;
             let random_hash = (<system::Module<T>>::random_seed(), &sender).using_encoded(<T as system::Trait>::Hashing::hash);
             
@@ -102,6 +110,7 @@ decl_module! {
 }
 
 impl<T: Trait> Module<T> {
+    // Start ERC721 : Internal Functions //
     fn _exists(token_id: T::Hash) -> bool {
         return <TokenOwner<T>>::exists(token_id);
     }
@@ -138,6 +147,7 @@ impl<T: Trait> Module<T> {
             None => return Err("Overflow adding a new token to account balance"),
         };
 
+        // Writing to storage begins here
         Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
         Self::_add_token_to_all_tokens_enumeration(token_id)?;
 
@@ -162,6 +172,7 @@ impl<T: Trait> Module<T> {
             None => return Err("Underflow subtracting a token to account balance"),
         };
 
+        // Writing to storage begins here
         Self::_remove_token_from_all_tokens_enumeration(token_id)?;
         Self::_remove_token_from_owner_enumeration(owner.clone(), token_id)?;
         <OwnedTokensIndex<T>>::remove(token_id);
@@ -197,6 +208,7 @@ impl<T: Trait> Module<T> {
             None => return Err("Transfer causes overflow of 'to' token balance"),
         };
 
+        // Writing to storage begins here
         Self::_remove_token_from_owner_enumeration(from.clone(), token_id)?;
         Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
         
@@ -215,7 +227,9 @@ impl<T: Trait> Module<T> {
 
         Ok(())
     }
+    // End ERC721 : Internal Functions //
 
+    // Start ERC721 : Enumerable : Internal Functions //
     fn _add_token_to_owner_enumeration(to: T::AccountId, token_id: T::Hash) -> Result {
         let new_token_index = Self::balance_of(&to);
 
@@ -245,7 +259,6 @@ impl<T: Trait> Module<T> {
     fn _remove_token_from_owner_enumeration(from: T::AccountId, token_id: T::Hash) -> Result {
         let balance_of_from = Self::balance_of(&from);
 
-        // Should never fail since this check happens in the parent function
         let last_token_index = match balance_of_from.checked_sub(1) {
             Some (c) => c,
             None => return Err("Transfer causes underflow of 'from' token balance"),
@@ -290,4 +303,5 @@ impl<T: Trait> Module<T> {
 
         Ok(())
     }
+    // End ERC721 : Enumerable : Internal Functions //
 }
