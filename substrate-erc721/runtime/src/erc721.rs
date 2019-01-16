@@ -26,19 +26,22 @@ decl_event!(
 decl_storage! {
     trait Store for Module<T: Trait> as ERC721Storage {
         // Start ERC721 : Storage & Getters //
-        OwnedTokensCount get(balance_of): map T::AccountId => u32;
+        OwnedTokensCount get(balance_of): map T::AccountId => u64;
         TokenOwner get(owner_of): map T::Hash => Option<T::AccountId>;
         TokenApprovals get(get_approved): map T::Hash => Option<T::AccountId>;
         OperatorApprovals get(is_approved_for_all): map (T::AccountId, T::AccountId) => bool;
         // End ERC721 : Storage & Getters //
 
         // Start ERC721 : Enumerable : Storage & Getters //
-        TotalSupply get(total_supply): u32;
-        AllTokens get(token_by_index): map u32 => T::Hash;
-        AllTokensIndex: map T::Hash => u32;
-        OwnedTokens get(token_of_owner_by_index): map (T::AccountId, u32) => T::Hash;
-        OwnedTokensIndex: map T::Hash => u32;
+        TotalSupply get(total_supply): u64;
+        AllTokens get(token_by_index): map u64 => T::Hash;
+        AllTokensIndex: map T::Hash => u64;
+        OwnedTokens get(token_of_owner_by_index): map (T::AccountId, u64) => T::Hash;
+        OwnedTokensIndex: map T::Hash => u64;
         // Start ERC721 : Enumerable : Storage & Getters //
+
+        // Not a part of the ERC721 specification, but used in random token generation
+        Nonce: u64;
     }
 }
 
@@ -100,9 +103,11 @@ decl_module! {
         // Not part of ERC721, but allows you to play with the runtime
         fn create_token(origin) -> Result {
             let sender = ensure_signed(origin)?;
-            let random_hash = (<system::Module<T>>::random_seed(), &sender).using_encoded(<T as system::Trait>::Hashing::hash);
+            let nonce = <Nonce<T>>::get();
+            let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce).using_encoded(<T as system::Trait>::Hashing::hash);
             
             Self::_mint(sender, random_hash)?;
+            <Nonce<T>>::mutate(|n| *n += 1);
 
             Ok(())
         }
