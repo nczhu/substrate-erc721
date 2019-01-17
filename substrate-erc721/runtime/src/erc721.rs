@@ -247,6 +247,7 @@ impl<T: Trait> Module<T> {
     fn _add_token_to_all_tokens_enumeration(token_id: T::Hash) -> Result {
         let total_supply = Self::total_supply();
 
+        // Should never fail since overflow on user balance is checked before this
         let new_total_supply = match total_supply.checked_add(1) {
             Some (c) => c,
             None => return Err("Overflow when adding new token to total supply"),
@@ -264,6 +265,7 @@ impl<T: Trait> Module<T> {
     fn _remove_token_from_owner_enumeration(from: T::AccountId, token_id: T::Hash) -> Result {
         let balance_of_from = Self::balance_of(&from);
 
+        // Should never fail because same check happens before this call is made
         let last_token_index = match balance_of_from.checked_sub(1) {
             Some (c) => c,
             None => return Err("Transfer causes underflow of 'from' token balance"),
@@ -287,6 +289,7 @@ impl<T: Trait> Module<T> {
     fn _remove_token_from_all_tokens_enumeration(token_id: T::Hash) -> Result {
         let total_supply = Self::total_supply();
 
+        // Should never fail because balance of underflow is checked before this
         let new_total_supply = match total_supply.checked_sub(1) {
             Some(c) => c,
             None => return Err("Underflow removing token from total supply"),
