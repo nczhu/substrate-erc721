@@ -153,8 +153,8 @@ impl<T: Trait> Module<T> {
         };
 
         // Writing to storage begins here
-        Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
         Self::_add_token_to_all_tokens_enumeration(token_id)?;
+        Self::_add_token_to_owner_enumeration(to.clone(), token_id)?;
 
         <TokenOwner<T>>::insert(token_id, &to);
         <OwnedTokensCount<T>>::insert(&to, new_balance_of);
