@@ -2,7 +2,7 @@
 // https://github.com/OpenZeppelin/openzeppelin-solidity/tree/master/contracts/token/ERC721
 
 use parity_codec::Encode;
-use srml_support::{StorageValue, StorageMap, dispatch::Result};
+use srml_support::{decl_module, decl_storage, decl_event, ensure, StorageValue, StorageMap, dispatch::Result};
 use system::ensure_signed;
 use runtime_primitives::traits::{Hash, Zero};
 use rstd::prelude::*;
